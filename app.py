@@ -203,7 +203,7 @@ if not is_admin and not is_approved_user:
                 st.error("කරුණාකර නම සහ Contact විස්තර ලබා දෙන්න.")
     st.stop()
 
-# Build Dynamic Navigation Tabs (Python Script Exporter Tab Has Been Removed)
+# Dynamic Navigation Tabs (Script Exporter Tab removed)
 tab_list = [
     "1. 🔗 Form URL & Parsing", 
     "2. 🎛️ Question Probabilities & Mock Data", 
