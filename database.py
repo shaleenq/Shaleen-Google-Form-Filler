@@ -4,6 +4,7 @@ import os
 import random
 import string
 from datetime import datetime
+import pandas as pd
 
 DB_FILE = "form_presets.db"
 
@@ -13,9 +14,11 @@ def get_connection(db_path=DB_FILE):
     return conn
 
 def init_db(db_path=DB_FILE):
-    """Initializes the SQLite database table for form presets."""
+    """Initializes the SQLite database tables for form presets, access keys, and waiting list."""
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
+        
+        # Form presets table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS form_presets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,6 +29,18 @@ def init_db(db_path=DB_FILE):
                 updated_at TEXT NOT NULL
             )
         """)
+        
+        # Access keys table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS access_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                access_key TEXT UNIQUE NOT NULL,
+                created_at TEXT NOT NULL,
+                is_active INTEGER DEFAULT 1
+            )
+        """)
+        
+        # Waiting list table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS waiting_list (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,14 +48,6 @@ def init_db(db_path=DB_FILE):
                 contact TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'PENDING',
                 access_key TEXT,
-                created_at TEXT NOT NULL
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS access_keys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                access_key TEXT UNIQUE NOT NULL,
-                is_active INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL
             )
         """)
@@ -103,52 +110,79 @@ def delete_preset(preset_name: str, db_path=DB_FILE) -> bool:
 
 def verify_access_key(access_key: str, db_path=DB_FILE) -> bool:
     """Verifies if an access key is valid and active."""
+    if not access_key or not access_key.strip():
+        return False
+    
     init_db(db_path)
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT 1 FROM access_keys WHERE access_key = ? AND is_active = 1", (access_key.strip(),))
-        return cursor.fetchone() is not None
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM access_keys WHERE access_key = ? AND is_active = 1",
+            (access_key.strip(),)
+        )
+        result = cursor.fetchone()
+        return result['count'] > 0 if result else False
 
 def add_to_waiting_list(name: str, contact: str, db_path=DB_FILE) -> int:
     """Adds a user to the waiting list. Returns the new row ID."""
     init_db(db_path)
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO waiting_list (name, contact, status, created_at)
-            VALUES (?, ?, 'PENDING', ?)
-        """, (name.strip(), contact.strip(), now_str))
-        conn.commit()
-        return cursor.lastrowid
+        try:
+            cursor.execute(
+                "INSERT INTO waiting_list (name, contact, status, created_at) VALUES (?, ?, ?, ?)",
+                (name.strip(), contact.strip(), 'PENDING', now_str)
+            )
+            conn.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            print(f"Error adding to waiting list: {e}")
+            return -1
 
 def get_waiting_list(db_path=DB_FILE):
-    """Retrieves all waiting list entries."""
+    """Retrieves the waiting list as a pandas DataFrame."""
     init_db(db_path)
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM waiting_list ORDER BY created_at DESC")
-        return [dict(row) for row in cursor.fetchall()]
+        cursor.execute(
+            "SELECT id, name, contact, status, access_key, created_at FROM waiting_list ORDER BY created_at DESC"
+        )
+        rows = cursor.fetchall()
+        data = [dict(row) for row in rows]
+    
+    df = pd.DataFrame(data) if data else pd.DataFrame(columns=['id', 'name', 'contact', 'status', 'access_key', 'created_at'])
+    return df
 
-def approve_user(waiting_id: int, access_key: str = None, db_path=DB_FILE) -> bool:
+def approve_user(waiting_list_id: int, access_key: str = None, db_path=DB_FILE) -> bool:
     """Approves a waiting list user and generates an access key."""
     init_db(db_path)
     if access_key is None:
         access_key = f"SHALEEN_{random.randint(10000, 99999)}"
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        # Update waiting list
-        cursor.execute("""
-            UPDATE waiting_list SET status = 'APPROVED', access_key = ? WHERE id = ?
-        """, (access_key, waiting_id))
-        # Add to access_keys table
-        cursor.execute("""
-            INSERT INTO access_keys (access_key, is_active, created_at)
-            VALUES (?, 1, ?)
-        """, (access_key, now_str))
-        conn.commit()
-        return cursor.rowcount > 0
+        
+        try:
+            # Insert the new access key
+            cursor.execute(
+                "INSERT INTO access_keys (access_key, created_at, is_active) VALUES (?, ?, ?)",
+                (access_key, now_str, 1)
+            )
+            
+            # Update the waiting list entry
+            cursor.execute(
+                "UPDATE waiting_list SET status = ?, access_key = ? WHERE id = ?",
+                ('APPROVED', access_key, waiting_list_id)
+            )
+            
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error approving user: {e}")
+            return False
 
 def generate_access_key(db_path=DB_FILE) -> str:
     """Generates a new unique access key."""
