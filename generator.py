@@ -157,15 +157,28 @@ def build_page_payload(questions_config: list, page_question_map: list, page_ind
     # Get entry_ids for this page
     page_entry_ids = set(page_question_map[page_index]) if page_index < len(page_question_map) else set()
     
+    # If page_question_map is empty or this page has no mapped questions,
+    # include all questions on the last page only
+    is_last_page = (page_index == len(page_question_map) - 1) if page_question_map else True
+    include_all = not page_question_map or not page_entry_ids
+    
     payload = {}
     for q in questions_config:
         entry_id = q.get("entry_id")
         if not entry_id:
             continue
-        # Only include questions that belong to this page
         raw_entry_id = q.get("raw_entry_id", entry_id.replace("entry.", ""))
-        if page_entry_ids and raw_entry_id not in page_entry_ids:
+        
+        # Include question if:
+        # - We're including all questions (fallback for single-page or failed page detection)
+        # - This is the last page and we're in fallback mode
+        # - The question belongs to this specific page
+        if include_all:
+            if not is_last_page:
+                continue  # Only include on last page in fallback mode
+        elif raw_entry_id not in page_entry_ids:
             continue
+            
         val = pick_question_value(q)
         if val is not None:
             payload[entry_id] = val

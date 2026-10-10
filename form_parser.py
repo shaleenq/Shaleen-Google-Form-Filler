@@ -160,6 +160,12 @@ def fetch_and_parse_form(url: str, custom_user_agent: str = DEFAULT_USER_AGENT):
         if len(raw_data) > 1 and raw_data[1] and len(raw_data[1]) > 2 and raw_data[1][2]:
             page_count = len(raw_data[1][2]) or 1
             page_question_map = extract_page_question_mapping(raw_data)
+            
+            # Fallback: if page_question_map is empty or all pages have no questions,
+            # treat as single-page form
+            if not page_question_map or all(len(page) == 0 for page in page_question_map):
+                page_count = 1
+                page_question_map = []
     except Exception:
         page_count = 1
         page_question_map = []
