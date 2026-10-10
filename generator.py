@@ -147,3 +147,31 @@ def build_submission_payload(questions_config: list, page_history: str = "0"):
         payload["pageHistory"] = page_history
 
     return payload
+
+
+def build_page_payload(questions_config: list, page_question_map: list, page_index: int):
+    """
+    Constructs the POST data dictionary for a specific page submission.
+    Only includes questions that belong to the given page.
+    """
+    # Get entry_ids for this page
+    page_entry_ids = set(page_question_map[page_index]) if page_index < len(page_question_map) else set()
+    
+    payload = {}
+    for q in questions_config:
+        entry_id = q.get("entry_id")
+        if not entry_id:
+            continue
+        # Only include questions that belong to this page
+        raw_entry_id = q.get("raw_entry_id", entry_id.replace("entry.", ""))
+        if page_entry_ids and raw_entry_id not in page_entry_ids:
+            continue
+        val = pick_question_value(q)
+        if val is not None:
+            payload[entry_id] = val
+
+    # Build pageHistory for this page (0, 0,1, 0,1,2, etc.)
+    page_history = ",".join(str(i) for i in range(page_index + 1))
+    payload["pageHistory"] = page_history
+
+    return payload

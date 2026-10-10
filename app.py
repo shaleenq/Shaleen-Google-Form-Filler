@@ -16,7 +16,7 @@ from urllib.parse import urlparse, urlunparse
 
 import database
 from form_parser import fetch_and_parse_form, normalize_urls, extract_fb_public_load_data, DEFAULT_USER_AGENT
-from generator import build_submission_payload, generate_mock_value
+from generator import build_submission_payload, build_page_payload, generate_mock_value
 
 # ==========================================
 # CONFIGURATION & SECRETS
@@ -108,7 +108,7 @@ def load_demo_form():
         "title": "Product Feedback Demo",
         "view_url": "https://docs.google.com/forms/d/e/1FAIpQLSc_DEMO/viewform",
         "submit_url": "https://docs.google.com/forms/d/e/1FAIpQLSc_DEMO/formResponse",
-        "page_count": 1, "page_history": "0", "questions": SAMPLE_DEMO_QUESTIONS
+        "page_count": 1, "page_history": "0", "page_question_map": [], "questions": SAMPLE_DEMO_QUESTIONS
     }
     st.session_state.questions_config = [dict(q) for q in SAMPLE_DEMO_QUESTIONS]
     st.session_state.raw_form_url = "https://docs.google.com/forms/d/e/1FAIpQLSc_DEMO/viewform"
@@ -122,6 +122,7 @@ def sync_preset_into_state(preset_data):
         "submit_url": preset_data["form_url"],
         "page_count": len(preset_data["page_history"].split(",")) if preset_data.get("page_history") else 1,
         "page_history": preset_data.get("page_history", "0"),
+        "page_question_map": preset_data.get("page_question_map", []),
         "questions": q_configs
     }
     st.session_state.raw_form_url = preset_data["form_url"]
@@ -284,14 +285,45 @@ with tab_runner:
 
         if st.button("🔥 Start Multi-Submission", type="primary"):
             success_count = 0
+            page_count = fd.get("page_count", 1)
+            page_question_map = fd.get("page_question_map", [])
+            
             for i in range(1, total_responses + 1):
-                payload = build_submission_payload(st.session_state.questions_config, page_history=fd["page_history"])
-                try:
-                    res = requests.post(fd["submit_url"], data=payload, headers={"User-Agent": st.session_state.user_agent}, timeout=15)
-                    if res.status_code in [200, 302]: success_count += 1
-                except Exception:
-                    pass
+                response_success = True
+                
+                # Submit each page sequentially
+                for page_idx in range(page_count):
+                    # Build payload for this specific page
+                    payload = build_page_payload(
+                        st.session_state.questions_config,
+                        page_question_map,
+                        page_idx
+                    )
+                    
+                    try:
+                        res = requests.post(
+                            fd["submit_url"], 
+                            data=payload, 
+                            headers={"User-Agent": st.session_state.user_agent}, 
+                            timeout=15
+                        )
+                        if res.status_code not in [200, 302]:
+                            response_success = False
+                            break
+                    except Exception:
+                        response_success = False
+                        break
+                    
+                    # Small delay between page submissions
+                    if page_idx < page_count - 1:
+                        time.sleep(delay_seconds)
+                
+                if response_success:
+                    success_count += 1
+                
+                # Delay between full responses
                 time.sleep(delay_seconds)
+            
             st.success(f"Completed! Successes: {success_count}/{total_responses}")
 
 # ==============================================================================

@@ -5,6 +5,29 @@ from urllib.parse import urlparse, urlunparse
 
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
+def extract_page_question_mapping(raw_data):
+    """
+    Extracts which questions belong to which page from raw_data[1][2].
+    Returns a list of lists, where each inner list contains entry_ids for that page.
+    """
+    page_question_map = []
+    try:
+        if len(raw_data) > 1 and raw_data[1] and len(raw_data[1]) > 2 and raw_data[1][2]:
+            pages = raw_data[1][2]
+            for page in pages:
+                if page and len(page) > 0:
+                    question_ids = []
+                    for q_item in page:
+                        if q_item and len(q_item) > 0 and q_item[0] is not None:
+                            question_ids.append(str(q_item[0]))
+                    page_question_map.append(question_ids)
+                else:
+                    page_question_map.append([])
+    except Exception:
+        pass
+    return page_question_map
+
+
 def normalize_urls(raw_url: str):
     """
     Normalizes a Google Form URL into a view_url (for fetching HTML)
@@ -132,11 +155,14 @@ def fetch_and_parse_form(url: str, custom_user_agent: str = DEFAULT_USER_AGENT):
 
     # Page count & pageHistory
     page_count = 1
+    page_question_map = []
     try:
         if len(raw_data) > 1 and raw_data[1] and len(raw_data[1]) > 2 and raw_data[1][2]:
             page_count = len(raw_data[1][2]) or 1
+            page_question_map = extract_page_question_mapping(raw_data)
     except Exception:
         page_count = 1
+        page_question_map = []
     page_history = ",".join(str(i) for i in range(page_count))
 
     # Questions parsing
@@ -213,5 +239,6 @@ def fetch_and_parse_form(url: str, custom_user_agent: str = DEFAULT_USER_AGENT):
         "submit_url": submit_url,
         "page_count": page_count,
         "page_history": page_history,
+        "page_question_map": page_question_map,
         "questions": questions
     }
